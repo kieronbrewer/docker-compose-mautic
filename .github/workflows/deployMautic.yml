@@ -138,13 +138,35 @@ jobs:
         fi
       env:
         DOMAIN: ${{ vars.DOMAIN }}
-    - name: Download setup-dc.log from Server  # This line and below had too much indentation
+   - name: Download setup-dc.log from Server
       run: |
         mkdir -p ~/.ssh
         echo "${{ secrets.SSH_PRIVATE_KEY }}" | base64 -d > ~/.ssh/id_rsa
         chmod 600 ~/.ssh/id_rsa
         ssh-keyscan -H ${{ env.ip }} >> ~/.ssh/known_hosts
-        chmod 600 ~/.ssh/known_hosts # Ensure permissions for known_hosts
+        chmod 600 ~/.ssh/known_hosts
+
+        # --- ADD THIS WAIT LOOP ---
+        echo "Waiting for setup-dc.log to appear on the server..."
+        MAX_RETRIES=10
+        RETRY_COUNT=0
+        while [ ! -f "/var/log/setup-dc.log" ] && [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+          echo "Log file not found yet, waiting 5 seconds... (Retry $((RETRY_COUNT + 1))/$MAX_RETRIES)"
+          sleep 5
+          RETRY_COUNT=$((RETRY_COUNT + 1))
+          # Check for file existence remotely
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no root@${{ env.ip }} "test -f /var/log/setup-dc.log" || continue
+        done
+
+        if [ ! -f "/var/log/setup-dc.log" ]; then
+            echo "Error: /var/log/setup-dc.log did not appear on the server after $MAX_RETRIES retries."
+            # Attempt to retrieve any partial log or just fail
+            # You might want to remove this exit 1 if you still want to upload artifact later
+            # Or add logic to check if setup-dc.sh succeeded before exiting
+            exit 1
+        fi
+        # --- END OF WAIT LOOP ---
+
         scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa root@${{ env.ip }}:/var/log/setup-dc.log ./setup-dc.log
         rm -f ~/.ssh/id_rsa
       shell: bash
