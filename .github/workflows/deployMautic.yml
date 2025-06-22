@@ -1,5 +1,4 @@
 name: Deploy to DigitalOcean
-
 on:
   push:
     branches:
@@ -8,18 +7,15 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
     - name: Load .mautic_env variables
       run: |
         set -a
         source .mautic_env
         set +a
         echo "MAUTIC_PORT=${MAUTIC_PORT}" >> $GITHUB_ENV
-
     - name: Check EMAIL_ADDRESS environment variable
       run: |
         if [ -z "${EMAIL_ADDRESS}" ]; then
@@ -28,7 +24,6 @@ jobs:
         fi
       env:
         EMAIL_ADDRESS: ${{ vars.EMAIL_ADDRESS }}
-
     - name: Check required secrets
       env:
         DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
@@ -42,22 +37,18 @@ jobs:
             error_missing_secrets+=("$1")
           fi
         }
-
         check_secret "DIGITALOCEAN_ACCESS_TOKEN"
         check_secret "DIGITALOCEAN_SSH_FINGERPRINT"
         check_secret "MAUTIC_PASSWORD"
         check_secret "SSH_PRIVATE_KEY"
-
         if [ ${#error_missing_secrets[@]} -ne 0 ]; then
           echo "Error: Missing required secrets: ${error_missing_secrets[*]}"
           exit 1
         fi
-
     - name: Install doctl
       uses: digitalocean/action-doctl@v2
       with:
         token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-
     - name: Create VPS if it doesn't exist
       run: |
         if ! doctl compute droplet list | grep -q 'mautic-vps'; then
@@ -67,7 +58,6 @@ jobs:
           echo "Droplet 'mautic-vps' already exists."
           echo "droplet_created=true" >> $GITHUB_ENV
         fi
-
     - name: Get VPS IP
       run: |
         echo "Waiting for droplet to be ready..."
@@ -84,7 +74,6 @@ jobs:
           fi
         done
         echo "ip=$IP" >> $GITHUB_ENV
-
     - name: Wait for server to be accessible
       run: |
         echo "Waiting for server at ${{ env.ip }} to be accessible..."
@@ -97,7 +86,6 @@ jobs:
             sleep 2
           fi
         done
-
     - name: Prepare virtual server configuration
       if: ${{ vars.DOMAIN }}
       run: |
@@ -115,7 +103,6 @@ jobs:
           echo "To configure your DNS settings, access your domain registrar's DNS management page. Locate the DNS settings or DNS management section. You should create or update an A record with the following details: Name: @ (or your subdomain, e.g., www if your domain is www.example.com), Type: A, Value: ${{ env.ip }}. This change will point ${{ vars.DOMAIN }} to the IP address ${{ env.ip }}. Note that DNS changes can take up to 48 hours to propagate globally."
           exit 1
         fi
-
     - name: Prepare setup-dc.sh script
       run: |
         # Replace placeholders in setup-dc.sh
@@ -130,7 +117,6 @@ jobs:
       env:
         EMAIL_ADDRESS: ${{ vars.EMAIL_ADDRESS }}
         DOMAIN: ${{ vars.DOMAIN }}
-
     - name: Deploy to Server
       uses: easingthemes/ssh-deploy@main
       with:
@@ -143,7 +129,6 @@ jobs:
         EXCLUDE: ".git"
         SCRIPT_BEFORE: mkdir -p /var/www
         SCRIPT_AFTER: /var/www/setup-dc.sh > /var/log/setup-dc.log 2>&1
-
     - name: Open your Mautic instance
       run: |
         if [ -z "${DOMAIN}" ]; then
@@ -153,22 +138,17 @@ jobs:
         fi
       env:
         DOMAIN: ${{ vars.DOMAIN }}
-
-    - name: Download setup-dc.log from Server
-      run: |
-        mkdir -p ~/.ssh
-        # FIX IS HERE: Add `| base64 -d` to decode the secret before writing it to the file
-        echo "${{ secrets.SSH_PRIVATE_KEY }}" | base64 -d > ~/.ssh/id_rsa
-        chmod 600 ~/.ssh/id_rsa
-        # Recommended: Add the host to known_hosts to avoid `StrictHostKeyChecking=no`
-        ssh-keyscan -H ${{ env.ip }} >> ~/.ssh/known_hosts
-        chmod 600 ~/.ssh/known_hosts # Ensure permissions for known_hosts
-        
-        scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa root@${{ env.ip }}:/var/log/setup-dc.log ./setup-dc.log
-        rm -f ~/.ssh/id_rsa
-      shell: bash # Keep this, it's good
-
-    - name: Upload setup-dc.log as Artifact
+    - name: Download setup-dc.log from Server  # This line and below had too much indentation
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" | base64 -d > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H ${{ env.ip }} >> ~/.ssh/known_hosts
+        chmod 600 ~/.ssh/known_hosts # Ensure permissions for known_hosts
+        scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa root@${{ env.ip }}:/var/log/setup-dc.log ./setup-dc.log
+        rm -f ~/.ssh/id_rsa
+      shell: bash
+    - name: Upload setup-dc.log as Artifact # This line also needs to be fixed
       uses: actions/upload-artifact@v4
       with:
         name: setup-dc-log
