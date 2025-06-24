@@ -172,3 +172,4 @@ jobs:
 
         if [ ! -f "/var/log/setup-dc.log" ]; then
             echo "Error: /var/log/setup-dc.log did not appear on the server after $MAX
+            # This line is to force a workflow update {{ github.run_id }}
